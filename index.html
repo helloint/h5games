@@ -23,7 +23,7 @@
             width: 40px;
             height: 40px;
             background-color: white;  /* 默认背景颜色 */
-            border: 1px solid black;
+            border: 0.5px solid black;
             display: flex;
             align-items: center;
             justify-content: center;
@@ -73,6 +73,7 @@
             text-align: center;
         }
         .control-panel input {
+            width: 30px;
             margin: 5px;
             padding: 5px;
         }
@@ -126,7 +127,7 @@
         redPositions.forEach(pos => grid[pos.y][pos.x] = 'red');
         drawGrid();
         overlayContainer.style.display = 'none';
-        canvas.style.width = `${cols * 42}px`; // 40px + 2px 边框
+        canvas.style.width = `${cols * 41}px`;
     }
 
     function getConnectedCenterPositions(count) {
