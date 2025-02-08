@@ -1,0 +1,265 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>红色方块消除蓝色方块游戏</title>
+    <style>
+        body {
+            display: flex;
+            flex-direction: column;
+            justify-content: center;  /* 水平居中 */
+            align-items: center;      /* 垂直居中 */
+            height: 100vh;            /* 让 body 高度占满视口 */
+            margin: 0;                /* 移除默认边距 */
+        }
+        .canvas {
+            display: flex;
+            flex-wrap: wrap;
+            width: 504px;
+            position: relative;
+        }
+        .cell {
+            width: 40px;
+            height: 40px;
+            background-color: white;  /* 默认背景颜色 */
+            border: 1px solid black;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            box-sizing: border-box;
+        }
+
+        .cell-edge {
+            background-color: #d3d3d3;  /* 浅灰色背景 */
+        }
+
+        .blue { background-color: blue; }
+        .red { background-color: red; cursor: pointer; }
+        .red-with-number {
+            color: white;
+            font-weight: bold;
+        }
+
+        .overlay {
+            position: absolute;
+            top: 50%;
+            left: 50%;
+            transform: translate(-50%, -50%);
+            background: white;
+            border: 2px solid black;
+            padding: 20px;
+            display: none;
+            text-align: center;
+            z-index: 10;
+        }
+        .button-container {
+            margin-top: 10px;
+        }
+        .overlay-container {
+            position: absolute;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background: rgba(0, 0, 0, 0.5);
+            display: none;
+            align-items: center;
+            justify-content: center;
+            z-index: 5;
+        }
+        .control-panel {
+            margin-top: 20px;
+            text-align: center;
+        }
+        .control-panel input {
+            margin: 5px;
+            padding: 5px;
+        }
+        .path {
+            margin-top: 10px;
+        }
+    </style>
+</head>
+<body>
+<div class="canvas" id="canvas"></div>
+<div class="overlay-container" id="overlay-container">
+    <div class="overlay" id="overlay">
+        <p id="message"></p>
+        <div class="button-container">
+            <button onclick="restartGame()">重新开始</button>
+        </div>
+    </div>
+</div>
+
+<div class="control-panel">
+    <label for="rows">行数：</label>
+    <input type="number" id="rows" value="12">
+    <label for="cols">列数：</label>
+    <input type="number" id="cols" value="12">
+    <label for="blockCount">方块数：</label>
+    <input type="number" id="blockCount" value="8">
+    <button onclick="startNewGame()">开始游戏</button>
+    <button onclick="toggleHint()">💡提示</button>
+</div>
+
+<script>
+    let rows, cols, blockCount;
+    const canvas = document.getElementById('canvas');
+    const message = document.getElementById('message');
+    const overlay = document.getElementById('overlay');
+    const overlayContainer = document.getElementById('overlay-container');
+    let grid, remainingRed, redPositions, redNumbers, hintActive = false;
+
+    function initializeGame() {
+        rows = parseInt(document.getElementById('rows').value);
+        cols = parseInt(document.getElementById('cols').value);
+        blockCount = parseInt(document.getElementById('blockCount').value);
+        hintActive = false;
+
+        grid = Array.from({ length: rows }, () => Array(cols).fill(null));
+        remainingRed = blockCount;
+        let bluePositions = getConnectedCenterPositions(blockCount);
+        bluePositions.forEach(({ x, y }) => grid[y][x] = 'blue');
+        redPositions = getValidRedPositions(bluePositions);
+        redNumbers = Array.from({ length: blockCount }, (_, i) => i + 1);
+        redPositions.forEach(pos => grid[pos.y][pos.x] = 'red');
+        drawGrid();
+        overlayContainer.style.display = 'none';
+        canvas.style.width = `${cols * 42}px`; // 40px + 2px 边框
+    }
+
+    function getConnectedCenterPositions(count) {
+        let positions = [];
+        let startX = Math.floor(cols / 2), startY = Math.floor(rows / 2);
+        positions.push({ x: startX, y: startY });
+        while (positions.length < count) {
+            let last = positions[Math.floor(Math.random() * positions.length)];
+            let directions = [
+                { x: last.x + 1, y: last.y },
+                { x: last.x - 1, y: last.y },
+                { x: last.x, y: last.y + 1 },
+                { x: last.x, y: last.y - 1 }
+            ].filter(p =>
+                p.x > 0 && p.x < cols - 1 && p.y > 0 && p.y < rows - 1 &&
+                !positions.some(pos => pos.x === p.x && pos.y === p.y)
+            );
+            if (directions.length) {
+                positions.push(directions[Math.floor(Math.random() * directions.length)]);
+            }
+        }
+        return positions;
+    }
+
+    /**
+     * 核心算法，确保红色方块消除路径存在，游戏可以成功完成。
+     * FIXME: 现在显示的顺序并不总是正确的，但游戏似乎仍然存在其他可以完成的路径。
+     * @param bluePositions
+     * @returns {*[]}
+     */
+    function getValidRedPositions(bluePositions) {
+        let redPositions;
+        let availableBlues = [...bluePositions];
+        let maxRetry = 10;
+        let count = 0;
+        do {
+            redPositions = [];
+            while (redPositions.length < blockCount && availableBlues.length > 0) {
+                let target = availableBlues.pop();
+                let candidates = [
+                    { x: 0, y: target.y }, { x: cols - 1, y: target.y },
+                    { x: target.x, y: 0 }, { x: target.x, y: rows - 1 }
+                ].filter(p => !redPositions.some(r => r.x === p.x && r.y === p.y));
+                if (candidates.length) {
+                    redPositions.push(candidates[Math.floor(Math.random() * candidates.length)]);
+                }
+            }
+            count = count + 1;
+        } while (redPositions.length < availableBlues.length && count < maxRetry)
+
+        return redPositions;
+    }
+
+    function drawGrid() {
+        canvas.innerHTML = '';
+        for (let y = 0; y < rows; y++) {
+            for (let x = 0; x < cols; x++) {
+                let cell = document.createElement('div');
+                cell.classList.add('cell');
+
+                // 判断是否是画布四边上的方格
+                if (x === 0 || y === 0 || x === cols - 1 || y === rows - 1) {
+                    cell.classList.add('cell-edge');  // 添加浅灰色背景
+                }
+
+                if (grid[y][x] === 'blue') {
+                    cell.classList.add('blue');
+                }
+                if (grid[y][x] === 'red') {
+                    cell.classList.add('red');
+                    if (hintActive) {
+                        let index = redPositions.findIndex(pos => pos.x === x && pos.y === y);
+                        cell.textContent = redNumbers[index];
+                        cell.classList.add('red-with-number');
+                    }
+                    cell.addEventListener('click', () => removeClosestBlue(x, y));
+                }
+
+                canvas.appendChild(cell);
+            }
+        }
+    }
+
+    function removeClosestBlue(x, y) {
+        let closest = null, minDistance = Infinity;
+        for (let j = 0; j < rows; j++) {
+            for (let i = 0; i < cols; i++) {
+                if (grid[j][i] === 'blue' && (i === x || j === y)) {
+                    let distance = Math.abs(i - x) + Math.abs(j - y);
+                    if (distance < minDistance) {
+                        minDistance = distance;
+                        closest = { x: i, y: j };
+                    }
+                }
+            }
+        }
+        if (closest) {
+            grid[closest.y][closest.x] = null;
+        }
+        grid[y][x] = null;
+        remainingRed--;
+        checkGameStatus();
+        drawGrid();
+    }
+
+    function checkGameStatus() {
+        let remainingBlue = grid.flat().filter(cell => cell === 'blue').length;
+        if (remainingBlue === 0) {
+            message.textContent = '🏅游戏成功！';
+            overlay.style.display = 'block';
+            overlayContainer.style.display = 'flex';
+        } else if (remainingRed === 0) {
+            message.textContent = '🙅游戏失败！';
+            overlay.style.display = 'block';
+            overlayContainer.style.display = 'flex';
+        }
+    }
+
+    function restartGame() {
+        overlay.style.display = 'none';
+        initializeGame();
+    }
+
+    function startNewGame() {
+        initializeGame();
+    }
+
+    function toggleHint() {
+        hintActive = !hintActive;
+        drawGrid();
+    }
+
+    initializeGame();
+</script>
+</body>
+</html>
